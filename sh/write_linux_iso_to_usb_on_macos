@@ -1,0 +1,4 @@
+hdiutil convert -format UDRW -o destination_file.img source_file.iso
+diskutil partitionDisk /dev/disk? 1 "Free Space" "unused" "100%"
+sudo dd if=destination_file.img.dmg of=/dev/disk? bs=1m
+diskutil eject /dev/disk2
