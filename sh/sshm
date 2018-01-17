@@ -1,0 +1,10 @@
+#!/bin/bash
+user=us
+#host=("192.168.122.179" "192.168.122.165" "192.168.122.68")
+host=("us1" "us2" "us3")
+
+for k in ${!host[@]}
+do
+    echo "*** [INFO] Running command $@ on ${host[${k}]}"
+    ssh ${user}@${host[${k}]} $@
+done
