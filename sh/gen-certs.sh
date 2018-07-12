@@ -1,5 +1,6 @@
 #!/bin/sh
 PASS="123456"
+DAYS=365
 
 mkdir -p certs
 cd certs
@@ -12,17 +13,17 @@ openssl req -new -key ca-key.pem -out ca.csr -subj "/C=cn/ST=gd/L=gz/O=iam/OU=je
 cat ca.csr
 
 # 利用密钥签名并生成证书：
-openssl x509 -req -days 365 -sha256 -extensions v3_ca -signkey ca-key.pem -in ca.csr -out ca.crt -passin pass:$PASS 
+openssl x509 -req -days $DAYS -sha256 -extensions v3_ca -signkey ca-key.pem -in ca.csr -out ca.crt -passin pass:$PASS 
 cat ca.crt
 
 # 生成服务器/客户端密钥和证书：
 openssl genrsa -aes256 -passout pass:$PASS -out server-key.pem 2048
 openssl req -new -key server-key.pem -out server.csr -subj "/C=cn/ST=gd/L=gz/O=iam/OU=jetty/CN=localhost" -passin pass:$PASS 
-openssl x509 -req -days 365 -sha256 -extensions v3_req -CA ca.crt -CAkey ca-key.pem -CAcreateserial -CAserial ca.srl -in server.csr -out server.crt -passin pass:$PASS 
+openssl x509 -req -days $DAYS -sha256 -extensions v3_req -CA ca.crt -CAkey ca-key.pem -CAcreateserial -CAserial ca.srl -in server.csr -out server.crt -passin pass:$PASS 
 
 openssl genrsa -aes256 -passout pass:$PASS -out client-key.pem 2048
 openssl req -new -key client-key.pem -out client.csr -subj "/C=cn/ST=gd/L=gz/O=iam/OU=jetty/CN=client" -passin pass:$PASS 
-openssl x509 -req -days 365 -sha256 -extensions v3_req -CA ca.crt -CAkey ca-key.pem -CAcreateserial -CAserial ca.srl -in client.csr -out client.crt -passin pass:$PASS 
+openssl x509 -req -days $DAYS -sha256 -extensions v3_req -CA ca.crt -CAkey ca-key.pem -CAcreateserial -CAserial ca.srl -in client.csr -out client.crt -passin pass:$PASS 
 
 # 将密钥和证书转换成 p12 格式：
 openssl pkcs12 -export -clcerts -name server -inkey server-key.pem -in server.crt -out server.p12 -passout pass:$PASS -passin pass:$PASS 
