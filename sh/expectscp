@@ -1,0 +1,20 @@
+#!/usr/bin/expect -f
+if { [lindex $argv 3] == "" } {
+    spawn scp -r [lindex $argv 0] [lindex $argv 1]
+} else {
+    spawn scp -o "ProxyJump [lindex $argv 3]" -r [lindex $argv 0] [lindex $argv 1]
+}
+expect {
+    (yes/no)? {
+        send "yes\r"
+        exp_continue
+    }
+    assword: {
+        send "[lindex $argv 2]\r"
+        exp_continue
+    }
+    ~]# {
+        send ""
+    }
+}
+#interact

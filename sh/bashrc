@@ -1,0 +1,258 @@
+alias k='kubectl -n ${K8S_NAMESPACE}'
+alias kg='kubectl -n ${K8S_NAMESPACE} get'
+alias ke='kubectl -n ${K8S_NAMESPACE} edit'
+alias kd='kubectl -n ${K8S_NAMESPACE} describe'
+alias kdel='kubectl -n ${K8S_NAMESPACE} delete'
+alias kdelp='kubectl -n ${K8S_NAMESPACE} delete pod'
+
+function ka() {
+    kubectl $@ --all-namespaces
+}
+
+function __modify_ps1() {
+    if echo $PS1 | grep -v '__ns_ps1' > /dev/null; then
+        export PS1="$(sed 's/\(\\[#$>]\)/\`__ns_ps1\`\1/' <<< $PS1)"
+    fi
+    if echo $PS1 | grep -v '__ns_ps1' > /dev/null; then
+        export PS1="$(sed 's/\(\\n[#$>]\)/\`__ns_ps1\`\1/' <<< $PS1)"
+    fi
+    if echo $PS1 | grep -v '__ns_ps1' > /dev/null; then
+        export PS1="$(sed 's/\([#$>]\)/\`__ns_ps1\`\1/' <<< $PS1)"
+    fi
+}
+
+function cns() {
+    if [ ! -z "$1" ] && kubectl get ns --no-headers | awk -F ' ' '{print $1}' | grep "$1" 1>/dev/null 2>&1; then
+        export K8S_NAMESPACE=$1
+        export K8S_NAMESPACE_PS1="-($1)"
+        __modify_ps1
+    else
+        kubectl get ns --no-headers | awk -F' ' '{print $1}' | grep -v kube | nl
+        read -p "Default namespace: " line
+        if [[ $line =~ ^[0-9]+$ ]]; then
+            ns=$(kubectl get ns --no-headers | awk -F' ' '{print $1}' | grep -v kube | sed -n "${line}p")
+            if [ ! -z "$ns" ]; then
+                export K8S_NAMESPACE=$ns
+                export K8S_NAMESPACE_PS1="-($ns)"
+                __modify_ps1
+            fi
+        fi
+    fi
+}
+
+function __ns_ps1() {
+    if kubectl get ns --no-headers | awk -F' ' '{print $1}' | grep $K8S_NAMESPACE >/dev/null 2>&1; then
+        echo $K8S_NAMESPACE_PS1
+    fi
+}
+
+function cf() {
+    kubectl get pod -n ${K8S_NAMESPACE} | awk -F'[ ]+' '{split($2,c,"/"); if ($c[1] != $c[2] && $3 != "Completed") print $0}'
+}
+
+export -f cf
+
+function cfa() {
+        kubectl get pod --all-namespaces | awk -F'[ ]+' '{split($2,c,"/"); if ($c[1] != $c[2] && $3 != "Completed") print $0}'
+}
+
+export -f cfa
+
+function ccc() {
+    if [ "$1" == "-a" ]; then
+        echo "========== Checking node =========="
+        kubectl get node
+        echo "========== Checking namespace =========="
+        kubectl get ns
+        echo "========== Checking pvc =========="
+        kubectl get pvc --all-namespaces
+    else
+        echo "========== Checking node =========="
+        kubectl get node | grep -v " Ready "
+        echo "========== Checking namespace =========="
+        kubectl get ns | grep -v " Active "
+        echo "========== Checking pvc =========="
+        kubectl get pvc --all-namespaces | grep -v " Bound "
+    fi
+    echo "========== Pod =========="
+    kubectl get pod --all-namespaces | awk -F'[ ]+' '{split($3,c,"/"); if ($c[1] != $c[2] && $4 != "Completed") print $0}'
+}
+
+function _get_k8s_resource_name() {
+    local _RETURN_RES_NAME="$1"
+    local _RETURN_CONTAINER_NAME="$2"
+    local _KIND=$3
+    local _NAME=$4
+    local _FILTER=$5
+    RES_LIST=$(kubectl -n ${K8S_NAMESPACE} get $_KIND --no-headers | grep "$_FILTER" | awk '{print $1}' | grep "$_NAME")
+    RES_COUNT=$(echo "$RES_LIST" | wc -l)
+    if [ "$RES_COUNT" == 1 ]; then
+        SELECTED_RES=$RES_LIST
+    else
+        echo "$RES_LIST" | nl
+        read -p "Select $_KIND (default 1 $(echo "$RES_LIST" | sed '1!d')): " line
+        [ -z "$line" ] && line=1
+        SELECTED_RES=$(echo "$RES_LIST" | sed $line'!d')
+    fi
+    if [ ! -z "$SELECTED_RES" ]; then
+        eval $_RETURN_RES_NAME=$SELECTED_RES
+        if [ ! -z "$_RETURN_CONTAINER_NAME" ] && [ "${_KIND,,}" == "pod" ]; then
+            CONTAINER_LIST=$(kubectl get pod "$SELECTED_RES" -o=jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end})' | sort)
+            CONTAINER_COUNT=$(echo "$CONTAINER_LIST" | wc -l)
+            if [ "$CONTAINER_COUNT" == 1 ]; then
+                SELECTED_CONTAINER=$CONTAINER_LIST
+            else
+                echo "$CONTAINER_LIST" | nl
+                read -p "Select container of pod $SELECTED_POD (default 1 $(echo "$CONTAINER_LIST" | sed '1!d')): " line
+                [ -z "$line" ] && line=1
+                SELECTED_CONTAINER=$(echo "$CONTAINER_LIST" | sed $line'!d')
+            fi
+            [ -z "$SELECTED_CONTAINER" ] || eval $_RETURN_CONTAINER_NAME=$SELECTED_CONTAINER
+        fi
+    fi
+}
+
+function kex() {
+    POD_FILTER=$1
+    SELECTED_POD=""
+    SELECTED_CONTAINER=""
+    if [ "$2" == "-c" ]; then
+        SELECTED_CONTAINER="$3"
+        shift 3
+        _get_k8s_resource_name SELECTED_POD "" pod "$POD_FILTER" "Running"
+    else
+        _get_k8s_resource_name SELECTED_POD "SELECTED_CONTAINER" pod "$POD_FILTER" "Running"
+        shift 1
+    fi
+
+    if [ ! -z "$SELECTED_POD" ]; then
+        if [ -z "$SELECTED_CONTAINER" ]; then
+            echo kubectl exec "$SELECTED_POD" -n ${K8S_NAMESPACE} -it -- ${@:-bash}
+            kubectl exec "$SELECTED_POD" -n ${K8S_NAMESPACE} -it -- ${@:-bash}
+        else
+            echo kubectl exec "$SELECTED_POD" -n ${K8S_NAMESPACE} -it -c "$SELECTED_CONTAINER" -- ${@:-bash}
+            kubectl exec "$SELECTED_POD" -n ${K8S_NAMESPACE} -it -c "$SELECTED_CONTAINER" -- ${@:-bash}
+        fi
+    fi
+}
+
+function klg() {
+    POD_FILTER=$1
+    SELECTED_POD=""
+    SELECTED_CONTAINER=""
+    if [ "$2" == "-c" ]; then
+        SELECTED_CONTAINER="$3"
+        shift 3
+        _get_k8s_resource_name SELECTED_POD "" pod "$POD_FILTER" ""
+    else
+        _get_k8s_resource_name SELECTED_POD "SELECTED_CONTAINER" pod "$POD_FILTER" ""
+        shift 1
+    fi
+
+    if [ ! -z "$SELECTED_POD" ]; then
+        if [ -z "$SELECTED_CONTAINER" ]; then
+            echo kubectl logs "$SELECTED_POD" -n ${K8S_NAMESPACE} $@
+            kubectl logs "$SELECTED_POD" -n ${K8S_NAMESPACE} $@
+        else
+            echo kubectl logs "$SELECTED_POD" -n ${K8S_NAMESPACE} -c "$SELECTED_CONTAINER" $@
+            kubectl logs "$SELECTED_POD" -n ${K8S_NAMESPACE} -c "$SELECTED_CONTAINER" $@
+        fi
+    fi
+}
+
+function ksc() {
+    FILTER=$1
+    REPLICAS=$2
+    SELECTED=""
+
+    _get_k8s_resource_name SELECTED "" deployment "$FILTER" ""
+    if [ ! -z "$SELECTED" ]; then
+        kubectl scale deployment/$SELECTED -n ${K8S_NAMESPACE} --replicas=$REPLICAS
+        return
+    fi
+
+    _get_k8s_resource_name SELECTED "" statefulset "$FILTER" ""
+    if [ ! -z "$SELECTED" ]; then
+        kubectl scale statefulset/$SELECTED -n ${K8S_NAMESPACE} --replicas=$REPLICAS
+    fi
+}
+
+function kgc() {
+    CM_FILTER=$1
+    SELECTED_CM=""
+    _get_k8s_resource_name SELECTED_CM "" cm "$CM_FILTER" ""
+    shift 1
+    if [ ! -z "$SELECTED_CM" ]; then
+        echo kubectl get cm "$SELECTED_CM" -n ${K8S_NAMESPACE} $@
+        kubectl get cm "$SELECTED_CM" -n ${K8S_NAMESPACE} $@
+    fi
+}
+
+function kec() {
+    CM_FILTER=$1
+    SELECTED_CM=""
+    _get_k8s_resource_name SELECTED_CM "" cm "$CM_FILTER" ""
+    shift 1
+    if [ ! -z "$SELECTED_CM" ]; then
+        echo kubectl edit cm "$SELECTED_CM" -n ${K8S_NAMESPACE} $@
+        kubectl edit cm "$SELECTED_CM" -n ${K8S_NAMESPACE} $@
+    fi
+}
+
+function ked() {
+    FILTER=$1
+    SELECTED=""
+    _get_k8s_resource_name SELECTED "" deployment "$FILTER" ""
+    shift 1
+    if [ ! -z "$SELECTED" ]; then
+        echo kubectl edit deployment "$SELECTED" -n ${K8S_NAMESPACE} $@
+        kubectl edit deployment "$SELECTED" -n ${K8S_NAMESPACE} $@
+    fi
+}
+
+function klp() {
+    POD_FILTER=$1
+    shift 1
+    kubectl get pod -n ${K8S_NAMESPACE} $@ 2>&1 | grep "$POD_FILTER"
+}
+
+export -f klp
+
+function kdelpods() {
+    POD_FILTER=$1
+    shift 1
+    kubectl delete pod -n ${K8S_NAMESPACE} `kubectl get pod -n ${K8S_NAMESPACE} 2>&1 | grep "$POD_FILTER" | awk '{printf "%s ", $1}'` $@
+}
+
+function kgp () {
+    POD_FILTER=$1
+    SELECTED_POD=""
+    _get_k8s_resource_name SELECTED_POD "" pod "$POD_FILTER" ""
+    shift 1
+    if [ ! -z "$SELECTED_POD" ]; then
+        echo kubectl get pod "$SELECTED_POD" -n ${K8S_NAMESPACE} $@
+        kubectl get pod "$SELECTED_POD" -n ${K8S_NAMESPACE} $@
+    fi
+}
+
+function kdp() {
+    POD_FILTER=$1
+    SELECTED_POD=""
+    _get_k8s_resource_name SELECTED_POD "" pod "$POD_FILTER" ""
+    shift 1
+    if [ ! -z "$SELECTED_POD" ]; then
+        echo kubectl describe pod "$SELECTED_POD" -n ${K8S_NAMESPACE} $@
+        kubectl describe pod "$SELECTED_POD" -n ${K8S_NAMESPACE} $@
+    fi
+}
+
+function kt() {
+    POD_FILTER=$1
+    SELECTED_POD=""
+    _get_k8s_resource_name SELECTED_POD "" pod "$POD_FILTER" ""
+    shift 1
+    if [ ! -z "$SELECTED_POD" ]; then
+        echo kubectl top pod "$SELECTED_POD" -n ${K8S_NAMESPACE} --containers $@
+        kubectl top pod "$SELECTED_POD" -n ${K8S_NAMESPACE} --containers $@
+    fi
+}

@@ -1,0 +1,52 @@
+#!/usr/bin/expect -f
+set HOST [lindex $argv 0]
+set USER [lindex $argv 1]
+set PASSWD [lindex $argv 2]
+set SOURCEFILE [lindex $argv 3]
+set HOSTNAME [lindex $argv 4]
+set JUMPOPT [lindex $argv 5]
+
+set PWINPUTED 0
+
+if {[string match "/*" $PASSWD]} {
+    set PWINPUTED [ expr $PWINPUTED + 1 ]
+    spawn ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=1 -o ServerAliveCountMax=10 -i $PASSWD  $USER@$HOST $JUMPOPT
+} else {
+    spawn ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=1 -o ServerAliveCountMax=10 $USER@$HOST $JUMPOPT
+}
+
+expect {
+    (yes/no)? {
+        send "yes\r"
+        exp_continue
+    }
+    assword: {
+        if { $PWINPUTED > 0 } {
+            exit 255
+        } else {
+            set PWINPUTED [ expr $PWINPUTED + 1 ]
+            send "$PASSWD\r"
+            exp_continue
+        }
+    }
+    fingerprint])? {
+        send "yes\r"
+        exp_continue
+    }
+    ] {
+        send "cat > /tmp/.bashrc\r"
+        send [exec cat $SOURCEFILE]
+        send "\r\004"
+        sleep 1
+        send "source /tmp/.bashrc\r"
+    }
+    "remove with:" {
+        exec ssh-keygen -f "/home/xxx/.ssh/known_hosts" -R "$HOST"
+        exit 255
+    }
+    default {
+        send "\r"
+        exp_continue
+    }
+}
+interact
